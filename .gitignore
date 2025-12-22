@@ -1,3 +1,8 @@
 
 .env
 .env.local
+
+config.yaml
+resources.json
+
+start.local.sh
