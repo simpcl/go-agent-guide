@@ -135,7 +135,6 @@ func (g *ResourceGateway) DiscoverResources(ctx context.Context, resourceType st
 			Type:        resource.Type,
 			X402Version: x402Version,
 			Accepts:     accepts,
-			LastUpdated: 0, // Not in new format
 		})
 	}
 

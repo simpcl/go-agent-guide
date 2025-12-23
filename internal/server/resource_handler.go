@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -28,10 +27,9 @@ func NewResourceHandler(resourceGateway *gateway.ResourceGateway) *ResourceHandl
 
 // RegisterRoutes registers all API routes
 func (h *ResourceHandler) RegisterRoutes(router *gin.Engine, authMiddleware, payMiddleware gin.HandlerFunc) {
-	// Register /resources routes
-	resources := router.Group("/resources")
+	discover := router.Group("/discover")
 	{
-		resources.GET("/discover", h.DiscoverResources)
+		discover.GET("/resources", h.HandleDiscoverResources)
 	}
 
 	api := router.Group("/api")
@@ -83,7 +81,7 @@ func (h *ResourceHandler) HandleResourceRequest(c *gin.Context) {
 }
 
 // DiscoverResources handles the /resources/discover endpoint
-func (h *ResourceHandler) DiscoverResources(c *gin.Context) {
+func (h *ResourceHandler) HandleDiscoverResources(c *gin.Context) {
 	// Parse query parameters
 	resourceType := c.Query("type")
 	limitStr := c.DefaultQuery("limit", "20")
@@ -100,7 +98,7 @@ func (h *ResourceHandler) DiscoverResources(c *gin.Context) {
 	}
 
 	// Call facilitator
-	response, err := h.discoverResources(c.Request.Context(), resourceType, limit, offset)
+	response, err := h.resourceGateway.DiscoverResources(c.Request.Context(), resourceType, limit, offset)
 	if err != nil {
 		log.Error().Err(err).Msg("Facilitator discover resources failed")
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
@@ -112,9 +110,4 @@ func (h *ResourceHandler) DiscoverResources(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
-}
-
-// discoverResources returns discovered resources from loaded configuration
-func (h *ResourceHandler) discoverResources(ctx context.Context, resourceType string, limit, offset int) (*types.DiscoveryResponse, error) {
-	return h.resourceGateway.DiscoverResources(ctx, resourceType, limit, offset)
 }
