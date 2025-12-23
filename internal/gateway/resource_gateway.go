@@ -187,11 +187,17 @@ func (g *ResourceGateway) loadResources() error {
 	g.resources = make(map[string]*ResourceConfig)
 	for i := range resourcesList.Resources {
 		resource := &resourcesList.Resources[i]
-		// Normalize resource path (ensure it starts with /)
+		// Normalize resource path (ensure it starts with /, remove trailing slash except for root)
 		resourcePath := resource.Resource
 		if !strings.HasPrefix(resourcePath, "/") {
 			resourcePath = "/" + resourcePath
 		}
+		// Remove trailing slash except for root path "/"
+		if resourcePath != "/" && strings.HasSuffix(resourcePath, "/") {
+			resourcePath = strings.TrimSuffix(resourcePath, "/")
+		}
+		// Update the resource's Resource field to normalized path for consistency
+		resource.Resource = resourcePath
 		g.resources[resourcePath] = resource
 	}
 
@@ -221,6 +227,19 @@ func (g *ResourceGateway) ReloadResourcesIfNeeded() error {
 	return nil
 }
 
+// GetAllResources returns all resource configurations
+func (g *ResourceGateway) GetAllResources() []*ResourceConfig {
+	g.resourcesMutex.RLock()
+	defer g.resourcesMutex.RUnlock()
+
+	resources := make([]*ResourceConfig, 0, len(g.resources))
+	for _, resource := range g.resources {
+		resources = append(resources, resource)
+	}
+
+	return resources
+}
+
 // FindResource finds a resource configuration by path
 func (g *ResourceGateway) FindResource(path string) *ResourceConfig {
 	g.resourcesMutex.RLock()
@@ -231,12 +250,26 @@ func (g *ResourceGateway) FindResource(path string) *ResourceConfig {
 		return resource
 	}
 
+	// Try exact match with trailing slash removed (if path has trailing slash)
+	normalizedPath := strings.TrimSuffix(path, "/")
+	if normalizedPath != path {
+		if resource, exists := g.resources[normalizedPath]; exists {
+			return resource
+		}
+	}
+
 	// Try to find longest matching prefix
 	var bestMatch *ResourceConfig
 	var bestMatchLen int
 
 	for resourcePath, resource := range g.resources {
+		// Check if path starts with resourcePath (with or without trailing slash)
 		if strings.HasPrefix(path, resourcePath) && len(resourcePath) > bestMatchLen {
+			bestMatch = resource
+			bestMatchLen = len(resourcePath)
+		}
+		// Also check normalized path
+		if normalizedPath != path && strings.HasPrefix(normalizedPath, resourcePath) && len(resourcePath) > bestMatchLen {
 			bestMatch = resource
 			bestMatchLen = len(resourcePath)
 		}

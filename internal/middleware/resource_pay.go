@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"go-agent-guide/internal/gateway"
 	"go-x402-facilitator/pkg/facilitator"
@@ -24,11 +23,8 @@ func ResourcePayMiddleware(facilitator facilitator.PaymentFacilitator, resourceG
 			log.Warn().Err(err).Msg("Failed to reload resources")
 		}
 
-		// Get the requested path
-		requestPath := c.Param("path")
-		if !strings.HasPrefix(requestPath, "/") {
-			requestPath = "/" + requestPath
-		}
+		// Get the requested path (use full URL path instead of param)
+		requestPath := c.Request.URL.Path
 
 		// Find resource configuration
 		resource := resourceGateway.FindResource(requestPath)

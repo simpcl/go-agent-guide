@@ -32,13 +32,33 @@ func (h *ResourceHandler) RegisterRoutes(router *gin.Engine, authMiddleware, pay
 		discover.GET("/resources", h.HandleDiscoverResources)
 	}
 
-	api := router.Group("/api")
-	{
-		// Apply auth middleware first, then payment middleware
-		api.Use(authMiddleware)
-		api.Use(payMiddleware)
-		// Catch-all route for api requests - must be last
-		api.Any("/*path", h.HandleResourceRequest)
+	// Reload resources if needed before registering routes
+	if err := h.resourceGateway.ReloadResourcesIfNeeded(); err != nil {
+		log.Warn().Err(err).Msg("Failed to reload resources before registering routes")
+	}
+
+	// Get all resources and register a route for each
+	resources := h.resourceGateway.GetAllResources()
+	for _, resource := range resources {
+		// Normalize resource path: remove trailing slash (except for root path "/")
+		normalizedPath := resource.Resource
+		if normalizedPath != "/" && strings.HasSuffix(normalizedPath, "/") {
+			normalizedPath = strings.TrimSuffix(normalizedPath, "/")
+		}
+
+		// Create a route group for each resource
+		resourceGroup := router.Group(normalizedPath)
+		{
+			// Apply auth middleware first, then payment middleware
+			resourceGroup.Use(authMiddleware)
+			resourceGroup.Use(payMiddleware)
+			// Register both exact path and wildcard path to avoid 301 redirect
+			// Exact path: matches /api/premium-data
+			resourceGroup.Any("", h.HandleResourceRequest)
+			// Wildcard path: matches /api/premium-data/*
+			resourceGroup.Any("/*path", h.HandleResourceRequest)
+		}
+		log.Info().Str("resource", resource.Resource).Str("normalized", normalizedPath).Msg("Registered route for resource")
 	}
 }
 
@@ -54,10 +74,7 @@ func (h *ResourceHandler) HandleResourceRequest(c *gin.Context) {
 	resourceInterface, exists := c.Get("resource_config")
 	if !exists {
 		// Resource not found, return 404
-		requestPath := c.Param("path")
-		if !strings.HasPrefix(requestPath, "/") {
-			requestPath = "/" + requestPath
-		}
+		requestPath := c.Request.URL.Path
 		c.JSON(http.StatusNotFound, types.ErrorResponse{
 			Error:   "resource_not_found",
 			Message: fmt.Sprintf("Resource not found: %s", requestPath),
