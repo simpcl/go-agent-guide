@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rs/cors"
 )
 
 // MetricsMiddleware provides Prometheus metrics collection
@@ -79,3 +80,20 @@ func RequestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
+// CorsMiddleware converts cors.Cors to gin middleware
+func CorsMiddleware(c *cors.Cors) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		// Use the CORS handler, but ensure we continue to next handler
+		// The CORS handler will add headers and handle OPTIONS requests
+		c.HandlerFunc(ctx.Writer, ctx.Request)
+
+		// Check if response was already written (e.g., OPTIONS preflight)
+		if ctx.Writer.Written() {
+			ctx.Abort()
+			return
+		}
+
+		// Continue to next handler
+		ctx.Next()
+	}
+}

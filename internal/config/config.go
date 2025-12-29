@@ -10,21 +10,32 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server      ServerConfig      `mapstructure:"server"`
-	Endpoints   []EndpointConfig  `mapstructure:"endpoints"`
-	Facilitator FacilitatorConfig `mapstructure:"facilitator"`
-	Auth        AuthConfig        `mapstructure:"auth"`
-	Monitoring  MonitoringConfig  `mapstructure:"monitoring"`
+	GatewayServer GatewayServerConfig `mapstructure:"gateway_server"`
+	AdminServer   AdminServerConfig   `mapstructure:"admin_server"`
+	Endpoints     []EndpointConfig    `mapstructure:"endpoints"`
+	Facilitator   FacilitatorConfig   `mapstructure:"facilitator"`
+	Auth          AuthConfig          `mapstructure:"auth"`
 }
 
-// ServerConfig represents HTTP server configuration
-type ServerConfig struct {
-	Host          string        `mapstructure:"host"`
-	Port          int           `mapstructure:"port"`
-	ReadTimeout   time.Duration `mapstructure:"read_timeout"`
-	WriteTimeout  time.Duration `mapstructure:"write_timeout"`
-	IdleTimeout   time.Duration `mapstructure:"idle_timeout"`
-	ResourcesFile string        `mapstructure:"resources_file"`
+// GatewayServerConfig represents gateway HTTP server configuration
+type GatewayServerConfig struct {
+	Host         string        `mapstructure:"host"`
+	Port         int           `mapstructure:"port"`
+	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+	IdleTimeout  time.Duration `mapstructure:"idle_timeout"`
+}
+
+// AdminServerConfig represents admin HTTP server configuration
+type AdminServerConfig struct {
+	Host           string        `mapstructure:"host"`
+	Port           int           `mapstructure:"port"`
+	ReadTimeout    time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout   time.Duration `mapstructure:"write_timeout"`
+	IdleTimeout    time.Duration `mapstructure:"idle_timeout"`
+	MetricsEnabled bool          `mapstructure:"metrics_enabled"`
+	LogLevel       string        `mapstructure:"log_level"`
+	LogFormat      string        `mapstructure:"log_format"`
 }
 
 // ChainNetwork represents a blockchain network configuration
@@ -56,14 +67,6 @@ type AuthConfig struct {
 	APIKeys     []string `mapstructure:"api_keys"`
 	JWTSecret   string   `mapstructure:"jwt_secret"`
 	RequireAuth bool     `mapstructure:"require_auth"`
-}
-
-// MonitoringConfig represents monitoring and observability configuration
-type MonitoringConfig struct {
-	MetricsEnabled bool   `mapstructure:"metrics_enabled"`
-	MetricsPort    int    `mapstructure:"metrics_port"`
-	LogLevel       string `mapstructure:"log_level"`
-	LogFormat      string `mapstructure:"log_format"`
 }
 
 // EndpointAuthConfig represents authentication configuration for an endpoint
@@ -145,13 +148,22 @@ func LoadConfig(configPath string) (*Config, error) {
 
 // setDefaults sets default configuration values
 func setDefaults() {
-	// Server defaults
-	viper.SetDefault("server.host", "0.0.0.0")
-	viper.SetDefault("server.port", 8080)
-	viper.SetDefault("server.read_timeout", "30s")
-	viper.SetDefault("server.write_timeout", "30s")
-	viper.SetDefault("server.idle_timeout", "120s")
-	viper.SetDefault("server.resources_file", "resources.json")
+	// Gateway server defaults
+	viper.SetDefault("gateway_server.host", "0.0.0.0")
+	viper.SetDefault("gateway_server.port", 8080)
+	viper.SetDefault("gateway_server.read_timeout", "30s")
+	viper.SetDefault("gateway_server.write_timeout", "30s")
+	viper.SetDefault("gateway_server.idle_timeout", "120s")
+
+	// Admin server defaults
+	viper.SetDefault("admin_server.host", "0.0.0.0")
+	viper.SetDefault("admin_server.port", 8081)
+	viper.SetDefault("admin_server.read_timeout", "30s")
+	viper.SetDefault("admin_server.write_timeout", "30s")
+	viper.SetDefault("admin_server.idle_timeout", "120s")
+	viper.SetDefault("admin_server.metrics_enabled", true)
+	viper.SetDefault("admin_server.log_level", "info")
+	viper.SetDefault("admin_server.log_format", "json")
 
 	// Facilitator defaults
 	viper.SetDefault("facilitator.private_key", "")
@@ -166,19 +178,27 @@ func setDefaults() {
 	viper.SetDefault("auth.enabled", true)
 	viper.SetDefault("auth.require_auth", false)
 	viper.SetDefault("auth.jwt_secret", "change-this-secret-key")
-
-	// Monitoring defaults
-	viper.SetDefault("monitoring.metrics_enabled", true)
-	viper.SetDefault("monitoring.metrics_port", 9090)
-	viper.SetDefault("monitoring.log_level", "info")
-	viper.SetDefault("monitoring.log_format", "json")
 }
 
 // validateConfig validates the configuration
 func validateConfig(config *Config) error {
-	// Validate server configuration
-	if config.Server.Port <= 0 || config.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", config.Server.Port)
+	// Validate gateway server configuration
+	if config.GatewayServer.Port <= 0 || config.GatewayServer.Port > 65535 {
+		return fmt.Errorf("invalid gateway server port: %d", config.GatewayServer.Port)
+	}
+
+	// Validate admin server configuration
+	if config.AdminServer.Port <= 0 || config.AdminServer.Port > 65535 {
+		return fmt.Errorf("invalid admin server port: %d", config.AdminServer.Port)
+	}
+
+	// Validate log level for admin server
+	validLogLevels := map[string]bool{
+		"trace": true, "debug": true, "info": true,
+		"warn": true, "error": true, "fatal": true, "panic": true,
+	}
+	if !validLogLevels[config.AdminServer.LogLevel] {
+		return fmt.Errorf("invalid admin server log level: %s", config.AdminServer.LogLevel)
 	}
 
 	// Validate facilitator configuration
@@ -217,15 +237,6 @@ func validateConfig(config *Config) error {
 	// Validate auth configuration
 	if config.Auth.Enabled && len(config.Auth.APIKeys) == 0 && config.Auth.RequireAuth {
 		return fmt.Errorf("authentication enabled but no API keys configured")
-	}
-
-	// Validate monitoring configuration
-	validLogLevels := map[string]bool{
-		"trace": true, "debug": true, "info": true,
-		"warn": true, "error": true, "fatal": true, "panic": true,
-	}
-	if !validLogLevels[config.Monitoring.LogLevel] {
-		return fmt.Errorf("invalid log level: %s", config.Monitoring.LogLevel)
 	}
 
 	return nil

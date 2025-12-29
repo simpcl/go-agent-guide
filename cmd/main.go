@@ -87,22 +87,28 @@ func main() {
 
 	log.Info().Msg("Facilitator initialized successfully")
 
-	// Create API server
-	server := server.NewServer(cfg, f)
+	// Create gateway server
+	gatewayServer := server.NewGatewayServer(cfg, f)
 
-	// Start metrics server if enabled
-	if err := server.StartMetricsServer(); err != nil {
-		log.Warn().Err(err).Msg("Failed to start metrics server")
-	}
+	// Create admin server
+	adminServer := server.NewAdminServer(cfg, f)
 
 	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start server in a goroutine
+	// Start gateway server in a goroutine
 	go func() {
-		if err := server.Start(); err != nil {
-			log.Error().Err(err).Msg("Server failed to start")
+		if err := gatewayServer.Start(); err != nil {
+			log.Error().Err(err).Msg("Gateway server failed to start")
+			cancel()
+		}
+	}()
+
+	// Start admin server in a goroutine
+	go func() {
+		if err := adminServer.Start(); err != nil {
+			log.Error().Err(err).Msg("Admin server failed to start")
 			cancel()
 		}
 	}()
@@ -124,8 +130,14 @@ func main() {
 
 	log.Info().Msg("Shutting down gracefully...")
 
-	if err := server.Stop(shutdownCtx); err != nil {
-		log.Error().Err(err).Msg("Error during server shutdown")
+	// Stop both servers
+	if err := gatewayServer.Stop(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("Error during gateway server shutdown")
+		os.Exit(1)
+	}
+
+	if err := adminServer.Stop(shutdownCtx); err != nil {
+		log.Error().Err(err).Msg("Error during admin server shutdown")
 		os.Exit(1)
 	}
 
@@ -134,15 +146,23 @@ func main() {
 
 // setupLogger configures the global logger
 func setupLogger(cfg *config.Config) {
-	// Set log level
-	level, err := zerolog.ParseLevel(cfg.Monitoring.LogLevel)
+	// Set log level from admin server config
+	logLevel := cfg.AdminServer.LogLevel
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	level, err := zerolog.ParseLevel(logLevel)
 	if err != nil {
 		level = zerolog.InfoLevel
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// Configure output format
-	if cfg.Monitoring.LogFormat == "console" {
+	// Configure output format from admin server config
+	logFormat := cfg.AdminServer.LogFormat
+	if logFormat == "" {
+		logFormat = "json"
+	}
+	if logFormat == "console" {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	} else {
 		log.Logger = log.With().Timestamp().Logger()
