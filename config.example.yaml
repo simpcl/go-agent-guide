@@ -6,12 +6,35 @@ server:
   read_timeout: 30s
   write_timeout: 30s
   idle_timeout: 120s
-  resources_file: "resources.json"  # Path to resources configuration file
+
+endpoints:
+  - endpoint: "/api/premium-data"
+    description: "Access to premium market data"
+    type: "http"
+    middlewares: ["x402-buyer"]
+    x402-buyer:
+      network: "localhost"
+      payTo: "0x93866dBB587db8b9f2C36570Ae083E3F9814e508"
+      maxAmountRequired: "100000"
+    targetUrl: "https://api.example.com/premium-data"
+  - endpoint: "/api/weather-data"
+    description: "Access to weather data API"
+    type: "http"
+    middlewares: ["auth", "x402-seller"]
+    auth:
+      type: "bearer"
+      token: "1234567890"
+    x402-seller:
+      network: "localhost"
+      payTo: "0x93866dBB587db8b9f2C36570Ae083E3F9814e508"
+      maxAmountRequired: "100000"
+    targetUrl: "https://api.example.com/weather-data"
 
 facilitator:
   private_key: ""  # Set via environment variable AGENTGUIDE_FACILITATOR_PRIVATE_KEY
   gas_limit: 100000
   gas_price: ""
+  x402Version: 1
   supported_schemes: ["exact"]
   supported_networks: ["localhost"]
   chain_networks:
@@ -22,6 +45,7 @@ facilitator:
       token_name: "MyToken"
       token_version: "1"
       token_decimals: 6
+      token_type: "ERC20"
     - name: "sepolia"
       rpc: "https://ethereum-sepolia-rpc.publicnode.com"
       id: 11155111
@@ -29,6 +53,7 @@ facilitator:
       token_name: "USDC"
       token_version: "1"
       token_decimals: 6
+      token_type: "ERC20"
     - name: "bnb-testnet"
       rpc: "https://bsc-testnet-dataseed.bnbchain.org"
       id: 97
@@ -36,6 +61,7 @@ facilitator:
       token_name: "AgentNetworkCoin"
       token_version: "1"
       token_decimals: 6
+      token_type: "ERC20"
     - name: "memo"
       rpc: "https://chain.metamemo.one:8501"
       id: 985
@@ -43,6 +69,7 @@ facilitator:
       token_name: "AgentNetworkCoin"
       token_version: "1"
       token_decimals: 6
+      token_type: "ERC20"
 
 auth:
   enabled: true

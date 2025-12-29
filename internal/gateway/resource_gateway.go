@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -66,22 +65,15 @@ type ResourceGateway struct {
 	cfg            *config.Config
 	resources      map[string]*ResourceConfig // Map of resource path to config
 	resourcesMutex sync.RWMutex
-	resourcesFile  string
 	lastLoadTime   time.Time
 }
 
 // NewResourceGateway creates a new resource gateway
 func NewResourceGateway(f facilitator.PaymentFacilitator, cfg *config.Config) *ResourceGateway {
-	resourcesFile := cfg.Server.ResourcesFile
-	if resourcesFile == "" {
-		resourcesFile = "resources.json" // Default path
-	}
-
 	gateway := &ResourceGateway{
-		facilitator:   f,
-		cfg:           cfg,
-		resources:     make(map[string]*ResourceConfig),
-		resourcesFile: resourcesFile,
+		facilitator: f,
+		cfg:         cfg,
+		resources:   make(map[string]*ResourceConfig),
 	}
 
 	// Load resources on startup
@@ -164,33 +156,21 @@ func (g *ResourceGateway) DiscoverResources(ctx context.Context, resourceType st
 	}, nil
 }
 
-// loadResources loads resources from the JSON file
+// loadResources loads resources from the configuration endpoints
 func (g *ResourceGateway) loadResources() error {
-	// Check if file exists
-	if _, err := os.Stat(g.resourcesFile); os.IsNotExist(err) {
-		log.Warn().Str("file", g.resourcesFile).Msg("Resources file not found, using empty resource list")
-		return nil
-	}
-
-	// Read file
-	data, err := os.ReadFile(g.resourcesFile)
-	if err != nil {
-		return fmt.Errorf("failed to read resources file: %w", err)
-	}
-
-	// Parse JSON
-	var resourcesList ResourcesList
-	if err := json.Unmarshal(data, &resourcesList); err != nil {
-		return fmt.Errorf("failed to parse resources JSON: %w", err)
-	}
-
 	// Update resources map
 	g.resourcesMutex.Lock()
 	defer g.resourcesMutex.Unlock()
 
 	g.resources = make(map[string]*ResourceConfig)
-	for i := range resourcesList.Resources {
-		resource := &resourcesList.Resources[i]
+
+	// Convert endpoint configs to resource configs
+	for _, endpoint := range g.cfg.Endpoints {
+		resource := g.convertEndpointToResource(&endpoint)
+		if resource == nil {
+			continue
+		}
+
 		// Normalize resource path (ensure it starts with /, remove trailing slash except for root)
 		resourcePath := resource.Resource
 		if !strings.HasPrefix(resourcePath, "/") {
@@ -208,27 +188,100 @@ func (g *ResourceGateway) loadResources() error {
 	g.lastLoadTime = time.Now()
 	log.Info().
 		Int("count", len(g.resources)).
-		Str("file", g.resourcesFile).
-		Msg("Resources loaded successfully")
+		Msg("Resources loaded successfully from configuration")
 
 	return nil
 }
 
-// ReloadResourcesIfNeeded reloads resources if the file has been modified
+// convertEndpointToResource converts an EndpointConfig to a ResourceConfig
+func (g *ResourceGateway) convertEndpointToResource(endpoint *config.EndpointConfig) *ResourceConfig {
+	resource := &ResourceConfig{
+		Resource:    endpoint.Endpoint,
+		Type:        endpoint.Type,
+		Middlewares: endpoint.Middlewares,
+		TargetURL:   endpoint.TargetURL,
+	}
+
+	// Convert auth config if present
+	if endpoint.Auth != nil {
+		resource.Auth = &AuthConfig{
+			Type:  endpoint.Auth.Type,
+			Token: endpoint.Auth.Token,
+		}
+	}
+
+	// Convert X402 config if present (check both buyer and seller)
+	var x402Config *X402Config
+	if endpoint.X402Buyer != nil {
+		x402Config = g.buildX402Config(endpoint, endpoint.X402Buyer.Network, endpoint.X402Buyer.PayTo, endpoint.X402Buyer.MaxAmountRequired)
+	} else if endpoint.X402Seller != nil {
+		x402Config = g.buildX402Config(endpoint, endpoint.X402Seller.Network, endpoint.X402Seller.PayTo, endpoint.X402Seller.MaxAmountRequired)
+	}
+
+	if x402Config != nil {
+		resource.X402 = x402Config
+	}
+
+	return resource
+}
+
+// buildX402Config builds a complete X402Config from endpoint config and network info
+func (g *ResourceGateway) buildX402Config(endpoint *config.EndpointConfig, networkName, payTo, maxAmountRequired string) *X402Config {
+	// Find chain network configuration
+	var chainNetwork *config.ChainNetwork
+	for i := range g.cfg.Facilitator.ChainNetworks {
+		if g.cfg.Facilitator.ChainNetworks[i].Name == networkName {
+			chainNetwork = &g.cfg.Facilitator.ChainNetworks[i]
+			break
+		}
+	}
+
+	if chainNetwork == nil {
+		log.Warn().
+			Str("network", networkName).
+			Str("endpoint", endpoint.Endpoint).
+			Msg("Chain network not found, skipping X402 config")
+		return nil
+	}
+
+	// Get scheme from facilitator config (use first supported scheme)
+	scheme := "exact"
+	if len(g.cfg.Facilitator.SupportedSchemes) > 0 {
+		scheme = g.cfg.Facilitator.SupportedSchemes[0]
+	}
+
+	// Get X402 version from facilitator config
+	x402Version := g.cfg.Facilitator.X402Version
+	if x402Version == 0 {
+		x402Version = 1 // Default to version 1
+	}
+
+	// Use TokenType from chain network, default to "ERC20" if not set
+	assetType := chainNetwork.TokenType
+	if assetType == "" {
+		assetType = "ERC20"
+	}
+
+	return &X402Config{
+		X402Version:       x402Version,
+		Scheme:            scheme,
+		Network:           networkName,
+		Resource:          endpoint.Endpoint,
+		Description:       endpoint.Description,
+		MaxAmountRequired: maxAmountRequired,
+		PayTo:             payTo,
+		AssetType:         assetType,
+		Asset:             chainNetwork.TokenAddress,
+		TokenName:         chainNetwork.TokenName,
+		TokenVersion:      chainNetwork.TokenVersion,
+	}
+}
+
+// ReloadResourcesIfNeeded reloads resources from configuration
+// Since we're now reading from config, we can always reload
 func (g *ResourceGateway) ReloadResourcesIfNeeded() error {
-	// Check if file exists
-	info, err := os.Stat(g.resourcesFile)
-	if os.IsNotExist(err) {
-		return nil // File doesn't exist, nothing to reload
-	}
-
-	// Check if file was modified after last load
-	if info.ModTime().After(g.lastLoadTime) {
-		log.Info().Msg("Resources file modified, reloading...")
-		return g.loadResources()
-	}
-
-	return nil
+	// Always reload from config (config is already loaded in memory)
+	return g.loadResources()
 }
 
 // GetAllResources returns all resource configurations

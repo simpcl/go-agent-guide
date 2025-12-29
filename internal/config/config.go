@@ -11,6 +11,7 @@ import (
 // Config represents the application configuration
 type Config struct {
 	Server      ServerConfig      `mapstructure:"server"`
+	Endpoints   []EndpointConfig  `mapstructure:"endpoints"`
 	Facilitator FacilitatorConfig `mapstructure:"facilitator"`
 	Auth        AuthConfig        `mapstructure:"auth"`
 	Monitoring  MonitoringConfig  `mapstructure:"monitoring"`
@@ -35,6 +36,7 @@ type ChainNetwork struct {
 	TokenName     string `mapstructure:"token_name"`
 	TokenVersion  string `mapstructure:"token_version"`
 	TokenDecimals int64  `mapstructure:"token_decimals"`
+	TokenType     string `mapstructure:"token_type"`
 }
 
 // FacilitatorConfig represents X402 facilitator configuration
@@ -42,6 +44,7 @@ type FacilitatorConfig struct {
 	PrivateKey        string         `mapstructure:"private_key"`
 	GasLimit          uint64         `mapstructure:"gas_limit"`
 	GasPrice          string         `mapstructure:"gas_price"`
+	X402Version       int            `mapstructure:"x402Version"`
 	SupportedSchemes  []string       `mapstructure:"supported_schemes"`
 	SupportedNetworks []string       `mapstructure:"supported_networks"`
 	ChainNetworks     []ChainNetwork `mapstructure:"chain_networks"`
@@ -61,6 +64,38 @@ type MonitoringConfig struct {
 	MetricsPort    int    `mapstructure:"metrics_port"`
 	LogLevel       string `mapstructure:"log_level"`
 	LogFormat      string `mapstructure:"log_format"`
+}
+
+// EndpointAuthConfig represents authentication configuration for an endpoint
+type EndpointAuthConfig struct {
+	Type  string `mapstructure:"type"`  // e.g., "bearer"
+	Token string `mapstructure:"token"` // token value
+}
+
+// X402BuyerConfig represents X402 buyer payment configuration
+type X402BuyerConfig struct {
+	Network           string `mapstructure:"network"`
+	PayTo             string `mapstructure:"payTo"`
+	MaxAmountRequired string `mapstructure:"maxAmountRequired"`
+}
+
+// X402SellerConfig represents X402 seller payment configuration
+type X402SellerConfig struct {
+	Network           string `mapstructure:"network"`
+	PayTo             string `mapstructure:"payTo"`
+	MaxAmountRequired string `mapstructure:"maxAmountRequired"`
+}
+
+// EndpointConfig represents an endpoint configuration
+type EndpointConfig struct {
+	Endpoint    string              `mapstructure:"endpoint"`
+	Description string              `mapstructure:"description"`
+	Type        string              `mapstructure:"type"`
+	Middlewares []string            `mapstructure:"middlewares"`
+	Auth        *EndpointAuthConfig `mapstructure:"auth,omitempty"`
+	X402Buyer   *X402BuyerConfig    `mapstructure:"x402-buyer,omitempty"`
+	X402Seller  *X402SellerConfig   `mapstructure:"x402-seller,omitempty"`
+	TargetURL   string              `mapstructure:"targetUrl"`
 }
 
 // LoadConfig loads configuration from file and environment
@@ -122,6 +157,7 @@ func setDefaults() {
 	viper.SetDefault("facilitator.private_key", "")
 	viper.SetDefault("facilitator.gas_limit", 100000)
 	viper.SetDefault("facilitator.gas_price", "")
+	viper.SetDefault("facilitator.x402Version", 1)
 	viper.SetDefault("facilitator.supported_schemes", []string{"exact"})
 	viper.SetDefault("facilitator.supported_networks", []string{})
 	viper.SetDefault("facilitator.chain_networks", []ChainNetwork{})

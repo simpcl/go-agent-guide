@@ -38,10 +38,10 @@ func ResourcePayMiddleware(facilitator facilitator.PaymentFacilitator, resourceG
 		// (Set it even if payment verification is not required, so handler knows resource exists)
 		c.Set("resource_config", resource)
 
-		// Check if payment middleware is required for this resource
+		// Check if payment "x402-seller" middleware is required for this resource
 		hasPayment := false
 		for _, mw := range resource.Middlewares {
-			if mw == "x402" {
+			if mw == "x402-seller" {
 				hasPayment = true
 				break
 			}
