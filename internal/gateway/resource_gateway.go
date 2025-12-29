@@ -290,20 +290,30 @@ type paymentRequiredResponse struct {
 	PaymentRequirements types.PaymentRequirements `json:"paymentRequirements"`
 }
 
+// findChainNetwork finds a chain network configuration by name
+func (g *ResourceGateway) findChainNetwork(networkName string) *config.ChainNetwork {
+	for i := range g.cfg.Facilitator.ChainNetworks {
+		if g.cfg.Facilitator.ChainNetworks[i].Name == networkName {
+			return &g.cfg.Facilitator.ChainNetworks[i]
+		}
+	}
+	return nil
+}
+
 func (g *ResourceGateway) createWeb3Account(network string, tokenContractAddr string) (*utils.Account, error) {
 	// Check if private key is configured
 	if g.cfg.Facilitator.PrivateKey == "" {
 		return nil, fmt.Errorf("private key not configured for automatic payment")
 	}
 
-	// Get chain configuration
-	chainRPC := g.cfg.Facilitator.DefaultChainRPC
-	if rpc, ok := g.cfg.Facilitator.ChainRPCs[network]; ok {
-		chainRPC = rpc
+	// Get chain configuration from chain_networks
+	chainNetwork := g.findChainNetwork(network)
+	if chainNetwork == nil {
+		return nil, fmt.Errorf("chain network %s not found in configuration", network)
 	}
 
 	// Create account from private key
-	return utils.NewAccountWithPrivateKey(chainRPC, tokenContractAddr, g.cfg.Facilitator.PrivateKey)
+	return utils.NewAccountWithPrivateKey(chainNetwork.RPC, tokenContractAddr, g.cfg.Facilitator.PrivateKey)
 }
 
 // createPaymentPayload creates a payment payload using the configured private key
@@ -314,10 +324,12 @@ func (g *ResourceGateway) createPaymentPayload(requirements *types.PaymentRequir
 		return nil, fmt.Errorf("failed to create web3 account: %w", err)
 	}
 
-	chainID := g.cfg.Facilitator.DefaultChainID
-	if id, ok := g.cfg.Facilitator.ChainIds[requirements.Network]; ok {
-		chainID = id
+	// Get chain ID from chain_networks
+	chainNetwork := g.findChainNetwork(requirements.Network)
+	if chainNetwork == nil {
+		return nil, fmt.Errorf("chain network %s not found in configuration", requirements.Network)
 	}
+	chainID := chainNetwork.ID
 
 	// Generate payment payload
 	var validDuration int64 = 300

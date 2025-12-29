@@ -50,44 +50,20 @@ func main() {
 		Msg("Starting Resource Gateway")
 
 	// Create facilitator instance
-	// Build networks map from configuration
+	// Build networks map from chain_networks configuration
 	networks := make(map[string]facilitator.NetworkConfig)
 
-	// Add default network if configured
-	if cfg.Facilitator.DefaultChainNetwork != "" {
-		networks[cfg.Facilitator.DefaultChainNetwork] = facilitator.NetworkConfig{
-			ChainRPC:      cfg.Facilitator.DefaultChainRPC,
-			ChainID:       cfg.Facilitator.DefaultChainID,
-			TokenAddress:  cfg.Facilitator.DefaultTokenAddress,
-			TokenName:     cfg.Facilitator.DefaultTokenName,
-			TokenVersion:  cfg.Facilitator.DefaultTokenVersion,
-			TokenDecimals: cfg.Facilitator.DefaultTokenDecimals,
+	// Add networks from chain_networks array
+	for _, chainNetwork := range cfg.Facilitator.ChainNetworks {
+		networks[chainNetwork.Name] = facilitator.NetworkConfig{
+			ChainRPC:      chainNetwork.RPC,
+			ChainID:       chainNetwork.ID,
+			TokenAddress:  chainNetwork.TokenAddress,
+			TokenName:     chainNetwork.TokenName,
+			TokenVersion:  chainNetwork.TokenVersion,
+			TokenDecimals: chainNetwork.TokenDecimals,
 			GasLimit:      cfg.Facilitator.GasLimit,
 			GasPrice:      cfg.Facilitator.GasPrice,
-		}
-	}
-
-	// Add additional networks from chain_ids, chain_rpcs, and token_contracts
-	for networkName, chainID := range cfg.Facilitator.ChainIds {
-		chainRPC := cfg.Facilitator.ChainRPCs[networkName]
-		tokenAddress := cfg.Facilitator.TokenContracts[networkName]
-
-		// Use default values if not specified
-		tokenName := cfg.Facilitator.DefaultTokenName
-		tokenVersion := cfg.Facilitator.DefaultTokenVersion
-		tokenDecimals := cfg.Facilitator.DefaultTokenDecimals
-		gasLimit := cfg.Facilitator.GasLimit
-		gasPrice := cfg.Facilitator.GasPrice
-
-		networks[networkName] = facilitator.NetworkConfig{
-			ChainRPC:      chainRPC,
-			ChainID:       chainID,
-			TokenAddress:  tokenAddress,
-			TokenName:     tokenName,
-			TokenVersion:  tokenVersion,
-			TokenDecimals: tokenDecimals,
-			GasLimit:      gasLimit,
-			GasPrice:      gasPrice,
 		}
 	}
 

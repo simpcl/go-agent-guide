@@ -9,30 +9,40 @@ server:
   resources_file: "resources.json"  # Path to resources configuration file
 
 facilitator:
-  default_chain_network: "localhost"
-  default_chain_rpc: "http://127.0.0.1:8545"
-  default_chain_id: 1337
-  default_token_address: "0xBA32c2Ee180e743cCe34CbbC86cb79278C116CEb"
-  default_token_name: "MyToken"
-  default_token_version: "1"
-  default_token_decimals: 6
   private_key: ""  # Set via environment variable AGENTGUIDE_FACILITATOR_PRIVATE_KEY
   gas_limit: 100000
   gas_price: ""
   supported_schemes: ["exact"]
-  supported_networks: []
-  chain_ids:
-    sepolia: 11155111
-    bnbtestnet: 97
-    memo: 985
-  chain_rpcs:
-    sepolia: "https://ethereum-sepolia-rpc.publicnode.com"
-    bnbtestnet: "https://bsc-testnet-dataseed.bnbchain.org"
-    memo: "https://chain.metamemo.one:8501"
-  token_contracts:
-    sepolia: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" # USDC in Sepolia
-    bnbtestnet: "0x99B816D50eeeFE2872aDa84DD66d500118Abb449" # AgentNetworkCoin (ANC) (only for test) in BNB Testnet
-    memo: "0x8d24Eb5b9f77a1a31c129491a026a0482af1BCEB" # AgentNetworkCoin (ANC) (only for test) in Memo
+  supported_networks: ["localhost"]
+  chain_networks:
+    - name: "localhost"
+      rpc: "http://127.0.0.1:8545"
+      id: 1337
+      token_address: "0xBA32c2Ee180e743cCe34CbbC86cb79278C116CEb"
+      token_name: "MyToken"
+      token_version: "1"
+      token_decimals: 6
+    - name: "sepolia"
+      rpc: "https://ethereum-sepolia-rpc.publicnode.com"
+      id: 11155111
+      token_address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+      token_name: "USDC"
+      token_version: "1"
+      token_decimals: 6
+    - name: "bnb-testnet"
+      rpc: "https://bsc-testnet-dataseed.bnbchain.org"
+      id: 97
+      token_address: "0x99B816D50eeeFE2872aDa84DD66d500118Abb449"
+      token_name: "AgentNetworkCoin"
+      token_version: "1"
+      token_decimals: 6
+    - name: "memo"
+      rpc: "https://chain.metamemo.one:8501"
+      id: 985
+      token_address: "0x8d24Eb5b9f77a1a31c129491a026a0482af1BCEB"
+      token_name: "AgentNetworkCoin"
+      token_version: "1"
+      token_decimals: 6
 
 auth:
   enabled: true

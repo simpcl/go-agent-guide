@@ -26,23 +26,25 @@ type ServerConfig struct {
 	ResourcesFile string        `mapstructure:"resources_file"`
 }
 
+// ChainNetwork represents a blockchain network configuration
+type ChainNetwork struct {
+	Name          string `mapstructure:"name"`
+	RPC           string `mapstructure:"rpc"`
+	ID            uint64 `mapstructure:"id"`
+	TokenAddress  string `mapstructure:"token_address"`
+	TokenName     string `mapstructure:"token_name"`
+	TokenVersion  string `mapstructure:"token_version"`
+	TokenDecimals int64  `mapstructure:"token_decimals"`
+}
+
 // FacilitatorConfig represents X402 facilitator configuration
 type FacilitatorConfig struct {
-	DefaultChainNetwork  string            `mapstructure:"default_chain_network"`
-	DefaultChainRPC      string            `mapstructure:"default_chain_rpc"`
-	DefaultChainID       uint64            `mapstructure:"default_chain_id"`
-	DefaultTokenAddress  string            `mapstructure:"default_token_address"`
-	DefaultTokenName     string            `mapstructure:"default_token_name"`
-	DefaultTokenVersion  string            `mapstructure:"default_token_version"`
-	DefaultTokenDecimals int64             `mapstructure:"default_token_decimals"`
-	PrivateKey           string            `mapstructure:"private_key"`
-	GasLimit             uint64            `mapstructure:"gas_limit"`
-	GasPrice             string            `mapstructure:"gas_price"`
-	SupportedSchemes     []string          `mapstructure:"supported_schemes"`
-	SupportedNetworks    []string          `mapstructure:"supported_networks"`
-	ChainIds             map[string]uint64 `mapstructure:"chain_ids"`
-	ChainRPCs            map[string]string `mapstructure:"chain_rpcs"`
-	TokenContracts       map[string]string `mapstructure:"token_contracts"`
+	PrivateKey        string         `mapstructure:"private_key"`
+	GasLimit          uint64         `mapstructure:"gas_limit"`
+	GasPrice          string         `mapstructure:"gas_price"`
+	SupportedSchemes  []string       `mapstructure:"supported_schemes"`
+	SupportedNetworks []string       `mapstructure:"supported_networks"`
+	ChainNetworks     []ChainNetwork `mapstructure:"chain_networks"`
 }
 
 // AuthConfig represents authentication configuration
@@ -117,18 +119,12 @@ func setDefaults() {
 	viper.SetDefault("server.resources_file", "resources.json")
 
 	// Facilitator defaults
-	viper.SetDefault("facilitator.default_chain_network", "localhost")
-	viper.SetDefault("facilitator.default_chain_rpc", "http://127.0.0.1:8545")
-	viper.SetDefault("facilitator.default_chain_id", 1337)
-	viper.SetDefault("facilitator.default_token_address", "")
-	viper.SetDefault("facilitator.default_token_name", "MyToken")
-	viper.SetDefault("facilitator.default_token_version", "1")
-	viper.SetDefault("facilitator.default_token_decimals", 6)
 	viper.SetDefault("facilitator.private_key", "")
 	viper.SetDefault("facilitator.gas_limit", 100000)
 	viper.SetDefault("facilitator.gas_price", "")
 	viper.SetDefault("facilitator.supported_schemes", []string{"exact"})
 	viper.SetDefault("facilitator.supported_networks", []string{})
+	viper.SetDefault("facilitator.chain_networks", []ChainNetwork{})
 
 	// Auth defaults
 	viper.SetDefault("auth.enabled", true)
@@ -147,6 +143,39 @@ func validateConfig(config *Config) error {
 	// Validate server configuration
 	if config.Server.Port <= 0 || config.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", config.Server.Port)
+	}
+
+	// Validate facilitator configuration
+	if len(config.Facilitator.ChainNetworks) == 0 {
+		return fmt.Errorf("at least one chain network must be configured")
+	}
+
+	// Validate each chain network
+	networkNames := make(map[string]bool)
+	for i, network := range config.Facilitator.ChainNetworks {
+		if network.Name == "" {
+			return fmt.Errorf("chain network at index %d: name is required", i)
+		}
+		if networkNames[network.Name] {
+			return fmt.Errorf("duplicate chain network name: %s", network.Name)
+		}
+		networkNames[network.Name] = true
+
+		if network.RPC == "" {
+			return fmt.Errorf("chain network %s: rpc is required", network.Name)
+		}
+		if network.ID == 0 {
+			return fmt.Errorf("chain network %s: id must be greater than 0", network.Name)
+		}
+		if network.TokenAddress == "" {
+			return fmt.Errorf("chain network %s: token_address is required", network.Name)
+		}
+		if network.TokenName == "" {
+			return fmt.Errorf("chain network %s: token_name is required", network.Name)
+		}
+		if network.TokenDecimals < 0 {
+			return fmt.Errorf("chain network %s: token_decimals must be non-negative", network.Name)
+		}
 	}
 
 	// Validate auth configuration
@@ -169,20 +198,11 @@ func validateConfig(config *Config) error {
 // ToFacilitatorConfig converts gateway config to facilitator config
 func (c *FacilitatorConfig) ToFacilitatorConfig() map[string]interface{} {
 	return map[string]interface{}{
-		"DefaultChainNetwork":  c.DefaultChainNetwork,
-		"DefaultChainRPC":      c.DefaultChainRPC,
-		"DefaultChainID":       c.DefaultChainID,
-		"DefaultTokenAddress":  c.DefaultTokenAddress,
-		"DefaultTokenName":     c.DefaultTokenName,
-		"DefaultTokenVersion":  c.DefaultTokenVersion,
-		"DefaultTokenDecimals": c.DefaultTokenDecimals,
-		"PrivateKey":           c.PrivateKey,
-		"GasLimit":             c.GasLimit,
-		"GasPrice":             c.GasPrice,
-		"SupportedSchemes":     c.SupportedSchemes,
-		"SupportedNetworks":    c.SupportedNetworks,
-		"ChainIds":             c.ChainIds,
-		"ChainRPCs":            c.ChainRPCs,
-		"TokenContracts":       c.TokenContracts,
+		"PrivateKey":        c.PrivateKey,
+		"GasLimit":          c.GasLimit,
+		"GasPrice":          c.GasPrice,
+		"SupportedSchemes":  c.SupportedSchemes,
+		"SupportedNetworks": c.SupportedNetworks,
+		"ChainNetworks":     c.ChainNetworks,
 	}
 }
