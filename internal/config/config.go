@@ -14,7 +14,6 @@ type Config struct {
 	AdminServer   AdminServerConfig   `mapstructure:"admin_server"`
 	Endpoints     []EndpointConfig    `mapstructure:"endpoints"`
 	Facilitator   FacilitatorConfig   `mapstructure:"facilitator"`
-	Auth          AuthConfig          `mapstructure:"auth"`
 }
 
 // GatewayServerConfig represents gateway HTTP server configuration
@@ -36,6 +35,9 @@ type AdminServerConfig struct {
 	MetricsEnabled bool          `mapstructure:"metrics_enabled"`
 	LogLevel       string        `mapstructure:"log_level"`
 	LogFormat      string        `mapstructure:"log_format"`
+	AuthEnabled    bool          `mapstructure:"auth_enabled"`
+	AuthType       string        `mapstructure:"auth_type"`
+	AuthTokens     []string      `mapstructure:"auth_tokens"`
 }
 
 // ChainNetwork represents a blockchain network configuration
@@ -59,14 +61,6 @@ type FacilitatorConfig struct {
 	SupportedSchemes  []string       `mapstructure:"supported_schemes"`
 	SupportedNetworks []string       `mapstructure:"supported_networks"`
 	ChainNetworks     []ChainNetwork `mapstructure:"chain_networks"`
-}
-
-// AuthConfig represents authentication configuration
-type AuthConfig struct {
-	Enabled     bool     `mapstructure:"enabled"`
-	APIKeys     []string `mapstructure:"api_keys"`
-	JWTSecret   string   `mapstructure:"jwt_secret"`
-	RequireAuth bool     `mapstructure:"require_auth"`
 }
 
 // EndpointAuthConfig represents authentication configuration for an endpoint
@@ -164,6 +158,9 @@ func setDefaults() {
 	viper.SetDefault("admin_server.metrics_enabled", true)
 	viper.SetDefault("admin_server.log_level", "info")
 	viper.SetDefault("admin_server.log_format", "json")
+	viper.SetDefault("admin_server.auth_enabled", true)
+	viper.SetDefault("admin_server.auth_type", "bearer")
+	viper.SetDefault("admin_server.auth_tokens", []string{})
 
 	// Facilitator defaults
 	viper.SetDefault("facilitator.private_key", "")
@@ -173,11 +170,6 @@ func setDefaults() {
 	viper.SetDefault("facilitator.supported_schemes", []string{"exact"})
 	viper.SetDefault("facilitator.supported_networks", []string{})
 	viper.SetDefault("facilitator.chain_networks", []ChainNetwork{})
-
-	// Auth defaults
-	viper.SetDefault("auth.enabled", true)
-	viper.SetDefault("auth.require_auth", false)
-	viper.SetDefault("auth.jwt_secret", "change-this-secret-key")
 }
 
 // validateConfig validates the configuration
@@ -234,9 +226,17 @@ func validateConfig(config *Config) error {
 		}
 	}
 
-	// Validate auth configuration
-	if config.Auth.Enabled && len(config.Auth.APIKeys) == 0 && config.Auth.RequireAuth {
-		return fmt.Errorf("authentication enabled but no API keys configured")
+	// Validate admin server auth configuration
+	validAuthTypes := map[string]bool{
+		"bearer": true, "basic": true, "api_key": true,
+	}
+	if config.AdminServer.AuthEnabled {
+		if !validAuthTypes[config.AdminServer.AuthType] {
+			return fmt.Errorf("invalid admin server auth type: %s (valid types: bearer, basic, api_key)", config.AdminServer.AuthType)
+		}
+		if len(config.AdminServer.AuthTokens) == 0 {
+			return fmt.Errorf("admin server authentication enabled but no auth tokens configured")
+		}
 	}
 
 	return nil

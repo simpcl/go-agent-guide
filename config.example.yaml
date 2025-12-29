@@ -71,12 +71,6 @@ facilitator:
       token_decimals: 6
       token_type: "ERC20"
 
-auth:
-  enabled: true
-  require_auth: false  # Set to true to require authentication for all endpoints
-  api_keys: []         # Set via environment variable AGENTGUIDE_AUTH_API_KEYS (comma-separated)
-  jwt_secret: "change-this-secret-key"  # Set via environment variable AGENTGUIDE_AUTH_JWT_SECRET
-
 # admin server is used to manage the agent guide server
 admin_server:
   host: "0.0.0.0"
@@ -87,3 +81,6 @@ admin_server:
   metrics_enabled: true
   log_level: "info"  # trace, debug, info, warn, error, fatal, panic
   log_format: "json"  # json, console
+  auth_enabled: true
+  auth_type: "bearer" # bearer, basic, api_key
+  auth_tokens: ["1234567890"] # tokens for the auth type

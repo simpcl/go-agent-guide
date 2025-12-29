@@ -15,7 +15,7 @@ import (
 )
 
 // AdminServer represents the admin HTTP server
-// It handles management endpoints with AuthMiddleware
+// It handles management endpoints with AdminAuthMiddleware
 type AdminServer struct {
 	config      *config.Config
 	facilitator facilitator.PaymentFacilitator
@@ -48,8 +48,8 @@ func (s *AdminServer) setupAdminMiddleware(router *gin.Engine) {
 	router.Use(middleware.CorsMiddleware(c))
 
 	// Add authentication middleware if enabled
-	if s.config.Auth.Enabled && s.config.Auth.RequireAuth {
-		router.Use(middleware.AuthMiddleware(s.config.Auth))
+	if s.config.AdminServer.AuthEnabled {
+		router.Use(middleware.AdminAuthMiddleware(s.config.AdminServer))
 	}
 
 	// Add metrics middleware if enabled
