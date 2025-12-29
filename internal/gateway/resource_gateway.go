@@ -1,11 +1,12 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
@@ -13,9 +14,12 @@ import (
 	"time"
 
 	"go-agent-guide/internal/config"
+	"go-x402-facilitator/pkg/client"
 	"go-x402-facilitator/pkg/facilitator"
 	"go-x402-facilitator/pkg/types"
+	"go-x402-facilitator/pkg/utils"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
@@ -278,6 +282,65 @@ func (g *ResourceGateway) FindResource(path string) *ResourceConfig {
 	return bestMatch
 }
 
+// PaymentRequiredResponse represents the 402 Payment Required response
+type paymentRequiredResponse struct {
+	Error               string                    `json:"error"`
+	Message             string                    `json:"message"`
+	Code                int                       `json:"code"`
+	PaymentRequirements types.PaymentRequirements `json:"paymentRequirements"`
+}
+
+func (g *ResourceGateway) createWeb3Account(network string, tokenContractAddr string) (*utils.Account, error) {
+	// Check if private key is configured
+	if g.cfg.Facilitator.PrivateKey == "" {
+		return nil, fmt.Errorf("private key not configured for automatic payment")
+	}
+
+	// Get chain configuration
+	chainRPC := g.cfg.Facilitator.DefaultChainRPC
+	if rpc, ok := g.cfg.Facilitator.ChainRPCs[network]; ok {
+		chainRPC = rpc
+	}
+
+	// Create account from private key
+	return utils.NewAccountWithPrivateKey(chainRPC, tokenContractAddr, g.cfg.Facilitator.PrivateKey)
+}
+
+// createPaymentPayload creates a payment payload using the configured private key
+func (g *ResourceGateway) createPaymentPayload(requirements *types.PaymentRequirements) (*types.PaymentPayload, error) {
+	// Create account from private key
+	account, err := g.createWeb3Account(requirements.Network, requirements.Asset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create web3 account: %w", err)
+	}
+
+	chainID := g.cfg.Facilitator.DefaultChainID
+	if id, ok := g.cfg.Facilitator.ChainIds[requirements.Network]; ok {
+		chainID = id
+	}
+
+	// Generate payment payload
+	var validDuration int64 = 300
+	now := time.Now().Unix()
+	validAfter := now - 600000
+	validBefore := now + validDuration
+
+	// Generate nonce
+	nonce := fmt.Sprintf(
+		"0x%x",
+		crypto.Keccak256Hash([]byte(fmt.Sprintf("%d-%s-%s", now, account.WalletAddress.Hex(), requirements.PayTo))).Hex(),
+	)
+
+	return client.CreatePaymentPayload(
+		requirements,
+		account,
+		validAfter,
+		validBefore,
+		chainID,
+		nonce,
+	)
+}
+
 // ProxyRequest proxies the request to the target URL
 func (g *ResourceGateway) ProxyRequest(c *gin.Context, resource *ResourceConfig) {
 	if resource.TargetURL == "" {
@@ -300,37 +363,88 @@ func (g *ResourceGateway) ProxyRequest(c *gin.Context, resource *ResourceConfig)
 		return
 	}
 
-	// Create reverse proxy
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy := NewAgentReverseProxy(c, targetURL)
 
-	// Modify the request
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		// Preserve original path and query
-		req.URL.Path = c.Request.URL.Path
-		req.URL.RawQuery = c.Request.URL.RawQuery
-		// Remove X-Payment header before forwarding
-		req.Header.Del("X-Payment")
-		// Preserve other headers
-		for key, values := range c.Request.Header {
-			if key != "X-Payment" {
-				req.Header[key] = values
-			}
-		}
-	}
-
-	// Handle errors
-	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
-		log.Error().Err(err).Msg("Proxy error")
-		rw.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(rw).Encode(types.ErrorResponse{
-			Error:   "bad_gateway",
-			Message: fmt.Sprintf("Failed to proxy request: %s", err.Error()),
-			Code:    http.StatusBadGateway,
-		})
-	}
+	// Create response capture to intercept 402 responses
+	capture := NewResponseCapture(c.Writer)
 
 	// Serve the request
-	proxy.ServeHTTP(c.Writer, c.Request)
+	proxy.ServeHTTP(capture, c.Request)
+
+	// Check if we got a 402 Payment Required response
+	if capture.statusCode == http.StatusPaymentRequired {
+		log.Info().Msg("Received 402 Payment Required, attempting automatic payment")
+
+		// Parse payment requirements from response body
+		var paymentResp paymentRequiredResponse
+		if err := json.Unmarshal(capture.body.Bytes(), &paymentResp); err != nil {
+			log.Error().Err(err).Msg("Failed to parse 402 response")
+			// Return the original 402 response
+			capture.flush()
+			return
+		}
+
+		// Create payment payload
+		paymentPayload, err := g.createPaymentPayload(&paymentResp.PaymentRequirements)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create payment payload")
+			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+				Error:   "payment_creation_failed",
+				Message: fmt.Sprintf("Failed to create payment: %s", err.Error()),
+				Code:    http.StatusInternalServerError,
+			})
+			return
+		}
+
+		// Serialize payment payload to JSON
+		paymentJSON, err := json.Marshal(paymentPayload)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal payment payload")
+			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+				Error:   "payment_serialization_failed",
+				Message: fmt.Sprintf("Failed to serialize payment: %s", err.Error()),
+				Code:    http.StatusInternalServerError,
+			})
+			return
+		}
+
+		log.Info().Msg("Payment payload created, retrying request with payment")
+
+		// Create a new request with X-Payment header
+		// We need to recreate the request body if it exists
+		var bodyReader io.Reader
+		if c.Request.Body != nil {
+			bodyBytes, err := io.ReadAll(c.Request.Body)
+			if err == nil {
+				bodyReader = bytes.NewReader(bodyBytes)
+			}
+		}
+
+		retryReq, err := http.NewRequestWithContext(
+			c.Request.Context(),
+			c.Request.Method,
+			targetURL.String(),
+			bodyReader,
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create retry request")
+			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+				Error:   "retry_request_failed",
+				Message: fmt.Sprintf("Failed to create retry request: %s", err.Error()),
+				Code:    http.StatusInternalServerError,
+			})
+			return
+		}
+
+		// Add X-Payment header
+		retryReq.Header.Set("X-Payment", string(paymentJSON))
+
+		retryProxy := NewAgentReverseProxy(c, targetURL)
+
+		// Execute the retry request directly to the original writer
+		retryProxy.ServeHTTP(c.Writer, retryReq)
+	} else {
+		// Not a 402, flush the captured response
+		capture.flush()
+	}
 }
