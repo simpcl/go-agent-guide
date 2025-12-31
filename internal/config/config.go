@@ -12,7 +12,7 @@ import (
 type Config struct {
 	GatewayServer GatewayServerConfig `mapstructure:"gateway_server"`
 	AdminServer   AdminServerConfig   `mapstructure:"admin_server"`
-	Endpoints     []EndpointConfig    `mapstructure:"endpoints"`
+	Resources     []EndpointConfig    `mapstructure:"resources"`
 	Facilitator   FacilitatorConfig   `mapstructure:"facilitator"`
 }
 
@@ -63,36 +63,13 @@ type FacilitatorConfig struct {
 	ChainNetworks     []ChainNetwork `mapstructure:"chain_networks"`
 }
 
-// EndpointAuthConfig represents authentication configuration for an endpoint
-type EndpointAuthConfig struct {
-	Type  string `mapstructure:"type"`  // e.g., "bearer"
-	Token string `mapstructure:"token"` // token value
-}
-
-// X402BuyerConfig represents X402 buyer payment configuration
-type X402BuyerConfig struct {
-	Network           string `mapstructure:"network"`
-	PayTo             string `mapstructure:"payTo"`
-	MaxAmountRequired string `mapstructure:"maxAmountRequired"`
-}
-
-// X402SellerConfig represents X402 seller payment configuration
-type X402SellerConfig struct {
-	Network           string `mapstructure:"network"`
-	PayTo             string `mapstructure:"payTo"`
-	MaxAmountRequired string `mapstructure:"maxAmountRequired"`
-}
-
 // EndpointConfig represents an endpoint configuration
 type EndpointConfig struct {
-	Endpoint    string              `mapstructure:"endpoint"`
-	Description string              `mapstructure:"description"`
-	Type        string              `mapstructure:"type"`
-	Middlewares []string            `mapstructure:"middlewares"`
-	Auth        *EndpointAuthConfig `mapstructure:"auth,omitempty"`
-	X402Buyer   *X402BuyerConfig    `mapstructure:"x402-buyer,omitempty"`
-	X402Seller  *X402SellerConfig   `mapstructure:"x402-seller,omitempty"`
-	TargetURL   string              `mapstructure:"targetUrl"`
+	Endpoint    string                   `mapstructure:"endpoint"`
+	Description string                   `mapstructure:"description"`
+	Type        string                   `mapstructure:"type"`
+	Middlewares []map[string]interface{} `mapstructure:"middlewares"` // Array of middleware config objects
+	TargetURL   string                   `mapstructure:"targetUrl"`
 }
 
 // LoadConfig loads configuration from file and environment

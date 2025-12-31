@@ -63,7 +63,6 @@ func (h *ResourceHandler) RegisterRoutes(router *gin.Engine, authMiddleware, pay
 }
 
 // HandleResourceRequest handles requests to resources
-// ResourceAuthMiddleware and ResourcePayMiddleware should have already validated and set resource_config in context
 func (h *ResourceHandler) HandleResourceRequest(c *gin.Context) {
 	// Reload resources if needed
 	if err := h.resourceGateway.ReloadResourcesIfNeeded(); err != nil {

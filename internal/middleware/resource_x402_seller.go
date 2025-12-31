@@ -13,10 +13,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// ResourcePayMiddleware provides resource-specific payment verification middleware
+// ResourceX402SellerMiddleware provides resource-specific payment verification middleware
 // It checks resources file to determine if payment verification is required
 // This is a Resource-level middleware, corresponding to ResourceAuthMiddleware
-func ResourcePayMiddleware(facilitator facilitator.PaymentFacilitator, resourceGateway *gateway.ResourceGateway) gin.HandlerFunc {
+func ResourceX402SellerMiddleware(facilitator facilitator.PaymentFacilitator, resourceGateway *gateway.ResourceGateway) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Reload resources if needed
 		if err := resourceGateway.ReloadResourcesIfNeeded(); err != nil {
@@ -28,7 +28,8 @@ func ResourcePayMiddleware(facilitator facilitator.PaymentFacilitator, resourceG
 
 		// Find resource configuration
 		resource := resourceGateway.FindResource(requestPath)
-		if resource == nil {
+		if resource == nil || resource.X402 == nil {
+			log.Warn().Str("requestPath", requestPath).Interface("resource", resource).Msg("Resource not found")
 			// Resource not found, skip payment verification (will be handled by handler)
 			c.Next()
 			return
@@ -47,7 +48,7 @@ func ResourcePayMiddleware(facilitator facilitator.PaymentFacilitator, resourceG
 			}
 		}
 
-		if !hasPayment || resource.X402 == nil {
+		if !hasPayment {
 			// No payment requirement, continue
 			c.Next()
 			return

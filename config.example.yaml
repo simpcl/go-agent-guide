@@ -7,27 +7,24 @@ gateway_server:
   write_timeout: 30s
   idle_timeout: 120s
 
-endpoints:
+resources:
   - endpoint: "/api/premium-data"
     description: "Access to premium market data"
     type: "http"
-    middlewares: ["x402-buyer"]
-    x402-buyer:
-      network: "localhost"
-      payTo: "0x93866dBB587db8b9f2C36570Ae083E3F9814e508"
-      maxAmountRequired: "100000"
+    middlewares: []
     targetUrl: "https://api.example.com/premium-data"
+
   - endpoint: "/api/weather-data"
     description: "Access to weather data API"
     type: "http"
-    middlewares: ["auth", "x402-seller"]
-    auth:
-      type: "bearer"
-      token: "1234567890"
-    x402-seller:
-      network: "localhost"
-      payTo: "0x93866dBB587db8b9f2C36570Ae083E3F9814e508"
-      maxAmountRequired: "100000"
+    middlewares:
+      - auth:
+          type: "bearer"
+          token: "1234567890"
+      - x402-seller:
+          network: "localhost"
+          payTo: "0x93866dBB587db8b9f2C36570Ae083E3F9814e508"
+          maxAmountRequired: "100000"
     targetUrl: "https://api.example.com/weather-data"
 
 facilitator:

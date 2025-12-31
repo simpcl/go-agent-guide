@@ -16,7 +16,7 @@ import (
 )
 
 // GatewayServer represents the gateway HTTP server
-// It handles resource requests with ResourceAuthMiddleware and ResourcePayMiddleware
+// It handles resource requests with ResourceAuthMiddleware and ResourceX402SellerMiddleware
 type GatewayServer struct {
 	config          *config.Config
 	facilitator     facilitator.PaymentFacilitator
@@ -49,10 +49,10 @@ func (s *GatewayServer) Start() error {
 
 	// Create resource-specific middlewares (auth and payment)
 	authMiddleware := middleware.ResourceAuthMiddleware(s.resourceGateway)
-	payMiddleware := middleware.ResourcePayMiddleware(s.facilitator, s.resourceGateway)
+	x402SellerMiddleware := middleware.ResourceX402SellerMiddleware(s.facilitator, s.resourceGateway)
 
 	// Register resource routes
-	s.resourceHandler.RegisterRoutes(router, authMiddleware, payMiddleware)
+	s.resourceHandler.RegisterRoutes(router, authMiddleware, x402SellerMiddleware)
 
 	// Create HTTP server
 	s.httpServer = &http.Server{

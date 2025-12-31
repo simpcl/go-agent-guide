@@ -23,21 +23,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// X402Config represents X402 payment configuration
-type X402Config struct {
-	X402Version       int    `json:"x402Version"`
-	Scheme            string `json:"scheme"`
-	Network           string `json:"network"`
-	Resource          string `json:"resource"`
-	Description       string `json:"description"`
-	MaxAmountRequired string `json:"maxAmountRequired"`
-	PayTo             string `json:"payTo"`
-	AssetType         string `json:"assetType"`
-	Asset             string `json:"asset"`
-	TokenName         string `json:"tokenName"`
-	TokenVersion      string `json:"tokenVersion"`
-}
-
 // AuthConfig represents authentication configuration for a resource
 type AuthConfig struct {
 	Type  string `json:"type"`  // e.g., "bearer"
@@ -46,12 +31,12 @@ type AuthConfig struct {
 
 // ResourceConfig represents a resource configuration loaded from JSON
 type ResourceConfig struct {
-	Resource    string      `json:"resource"`    // API endpoint prefix
-	Type        string      `json:"type"`        // e.g., "http"
-	Middlewares []string    `json:"middlewares"` // List of middleware names to apply (e.g., ["auth", "x402"])
-	Auth        *AuthConfig `json:"auth,omitempty"`
-	X402        *X402Config `json:"x402,omitempty"`
-	TargetURL   string      `json:"targetUrl"` // The actual backend URL to proxy to
+	Resource    string                     `json:"resource"`    // API endpoint prefix
+	Type        string                     `json:"type"`        // e.g., "http"
+	Middlewares []string                   `json:"middlewares"` // List of middleware names to apply (e.g., ["auth", "x402"])
+	Auth        *AuthConfig                `json:"auth,omitempty"`
+	X402        *types.PaymentRequirements `json:"x402,omitempty"`
+	TargetURL   string                     `json:"targetUrl"` // The actual backend URL to proxy to
 }
 
 // ResourcesList represents the structure of the resources JSON file
@@ -121,15 +106,10 @@ func (g *ResourceGateway) DiscoverResources(ctx context.Context, resourceType st
 			}
 		}
 
-		x402Version := 0
-		if resource.X402 != nil {
-			x402Version = resource.X402.X402Version
-		}
-
 		items = append(items, types.DiscoveryItem{
 			Resource:    resource.Resource,
 			Type:        resource.Type,
-			X402Version: x402Version,
+			X402Version: g.cfg.Facilitator.X402Version,
 			Accepts:     accepts,
 		})
 	}
@@ -156,7 +136,7 @@ func (g *ResourceGateway) DiscoverResources(ctx context.Context, resourceType st
 	}, nil
 }
 
-// loadResources loads resources from the configuration endpoints
+// loadResources loads resources from the configuration resources
 func (g *ResourceGateway) loadResources() error {
 	// Update resources map
 	g.resourcesMutex.Lock()
@@ -165,7 +145,7 @@ func (g *ResourceGateway) loadResources() error {
 	g.resources = make(map[string]*ResourceConfig)
 
 	// Convert endpoint configs to resource configs
-	for _, endpoint := range g.cfg.Endpoints {
+	for _, endpoint := range g.cfg.Resources {
 		resource := g.convertEndpointToResource(&endpoint)
 		if resource == nil {
 			continue
@@ -198,35 +178,51 @@ func (g *ResourceGateway) convertEndpointToResource(endpoint *config.EndpointCon
 	resource := &ResourceConfig{
 		Resource:    endpoint.Endpoint,
 		Type:        endpoint.Type,
-		Middlewares: endpoint.Middlewares,
+		Middlewares: []string{},
 		TargetURL:   endpoint.TargetURL,
 	}
 
-	// Convert auth config if present
-	if endpoint.Auth != nil {
-		resource.Auth = &AuthConfig{
-			Type:  endpoint.Auth.Type,
-			Token: endpoint.Auth.Token,
+	// Process middlewares array - each element is a map[string]interface{}
+	for _, mwMap := range endpoint.Middlewares {
+		// Check for auth middleware
+		if authConfig, hasAuth := mwMap["auth"]; hasAuth {
+			resource.Middlewares = append(resource.Middlewares, "auth")
+			if authMap, ok := authConfig.(map[string]interface{}); ok {
+				authType, _ := authMap["type"].(string)
+				authToken, _ := authMap["token"].(string)
+				if authType != "" && authToken != "" {
+					resource.Auth = &AuthConfig{
+						Type:  authType,
+						Token: authToken,
+					}
+				}
+			}
+			continue
 		}
-	}
 
-	// Convert X402 config if present (check both buyer and seller)
-	var x402Config *X402Config
-	if endpoint.X402Buyer != nil {
-		x402Config = g.buildX402Config(endpoint, endpoint.X402Buyer.Network, endpoint.X402Buyer.PayTo, endpoint.X402Buyer.MaxAmountRequired)
-	} else if endpoint.X402Seller != nil {
-		x402Config = g.buildX402Config(endpoint, endpoint.X402Seller.Network, endpoint.X402Seller.PayTo, endpoint.X402Seller.MaxAmountRequired)
-	}
-
-	if x402Config != nil {
-		resource.X402 = x402Config
+		// Check for x402-seller middleware
+		if sellerConfig, hasSeller := mwMap["x402-seller"]; hasSeller {
+			resource.Middlewares = append(resource.Middlewares, "x402-seller")
+			if sellerMap, ok := sellerConfig.(map[string]interface{}); ok {
+				network, _ := sellerMap["network"].(string)
+				payTo, _ := sellerMap["payto"].(string)
+				maxAmount, _ := sellerMap["maxamountrequired"].(string)
+				if network != "" && payTo != "" && maxAmount != "" {
+					resource.X402 = g.buildX402PaymentRequirements(endpoint, network, payTo, maxAmount)
+				}
+			}
+			continue
+		}
 	}
 
 	return resource
 }
 
 // buildX402Config builds a complete X402Config from endpoint config and network info
-func (g *ResourceGateway) buildX402Config(endpoint *config.EndpointConfig, networkName, payTo, maxAmountRequired string) *X402Config {
+func (g *ResourceGateway) buildX402PaymentRequirements(
+	endpoint *config.EndpointConfig,
+	networkName, payTo, maxAmountRequired string,
+) *types.PaymentRequirements {
 	// Find chain network configuration
 	var chainNetwork *config.ChainNetwork
 	for i := range g.cfg.Facilitator.ChainNetworks {
@@ -250,20 +246,13 @@ func (g *ResourceGateway) buildX402Config(endpoint *config.EndpointConfig, netwo
 		scheme = g.cfg.Facilitator.SupportedSchemes[0]
 	}
 
-	// Get X402 version from facilitator config
-	x402Version := g.cfg.Facilitator.X402Version
-	if x402Version == 0 {
-		x402Version = 1 // Default to version 1
-	}
-
 	// Use TokenType from chain network, default to "ERC20" if not set
 	assetType := chainNetwork.TokenType
 	if assetType == "" {
 		assetType = "ERC20"
 	}
 
-	return &X402Config{
-		X402Version:       x402Version,
+	return &types.PaymentRequirements{
 		Scheme:            scheme,
 		Network:           networkName,
 		Resource:          endpoint.Endpoint,
