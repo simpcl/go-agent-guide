@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"go-agent-guide/internal/gateway"
-	"go-x402-facilitator/pkg/types"
+	"github.com/agent-guide/go-x402-facilitator/pkg/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"

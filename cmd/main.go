@@ -11,7 +11,7 @@ import (
 
 	"go-agent-guide/internal/config"
 	"go-agent-guide/internal/server"
-	"go-x402-facilitator/pkg/facilitator"
+	"github.com/agent-guide/go-x402-facilitator/pkg/facilitator"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"

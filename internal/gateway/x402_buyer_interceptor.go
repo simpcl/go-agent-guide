@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"go-agent-guide/internal/config"
-	"go-x402-facilitator/pkg/client"
-	"go-x402-facilitator/pkg/types"
-	"go-x402-facilitator/pkg/utils"
+	"github.com/agent-guide/go-x402-facilitator/pkg/client"
+	"github.com/agent-guide/go-x402-facilitator/pkg/types"
+	"github.com/agent-guide/go-x402-facilitator/pkg/utils"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog/log"

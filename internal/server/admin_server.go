@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"go-agent-guide/internal/config"
 	"go-agent-guide/internal/middleware"
-	"go-x402-facilitator/pkg/facilitator"
+	"github.com/agent-guide/go-x402-facilitator/pkg/facilitator"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

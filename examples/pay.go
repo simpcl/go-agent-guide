@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	facilitatorTypes "go-x402-facilitator/pkg/types"
-	"go-x402-facilitator/pkg/utils"
+	facilitatorTypes "github.com/agent-guide/go-x402-facilitator/pkg/types"
+	"github.com/agent-guide/go-x402-facilitator/pkg/utils"
 )
 
 var (

@@ -3,13 +3,14 @@ module go-agent-guide
 go 1.23
 
 require (
+	github.com/agent-guide/go-x402-facilitator v0.0.1
+	github.com/ethereum/go-ethereum v1.13.5
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/rs/cors v1.10.1
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/viper v1.17.0
-	go-x402-facilitator v0.0.0
 )
 
 require (
@@ -27,7 +28,6 @@ require (
 	github.com/deckarep/golang-set/v2 v2.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/ethereum/c-kzg-4844 v0.4.0 // indirect
-	github.com/ethereum/go-ethereum v1.13.5 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
@@ -86,5 +86,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
-
-replace go-x402-facilitator => ../go-x402-facilitator

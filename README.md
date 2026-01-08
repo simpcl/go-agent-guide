@@ -48,7 +48,7 @@ An agent gateway service that integrates with X402 payment facilitator for payme
 ### Prerequisites
 
 - Go 1.23 or later
-- X402 Facilitator library (go-x402-facilitator)
+- X402 Facilitator library (github.com/agent-guide/go-x402-facilitator)
 
 ### Installation
 
