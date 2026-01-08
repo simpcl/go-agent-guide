@@ -14,12 +14,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type AgentReverseProxy struct {
-	proxy *httputil.ReverseProxy
-}
-
-// responseCapture is a custom ResponseWriter that captures the response
-type responseCapture struct {
+// ResponseCapture is a custom ResponseWriter that captures the response
+type ResponseCapture struct {
 	http.ResponseWriter
 	statusCode    int
 	body          *bytes.Buffer
@@ -27,8 +23,8 @@ type responseCapture struct {
 	headers       http.Header
 }
 
-func NewResponseCapture(w http.ResponseWriter) *responseCapture {
-	return &responseCapture{
+func NewResponseCapture(w http.ResponseWriter) *ResponseCapture {
+	return &ResponseCapture{
 		ResponseWriter: w,
 		statusCode:     http.StatusOK,
 		body:           bytes.NewBuffer(nil),
@@ -37,11 +33,11 @@ func NewResponseCapture(w http.ResponseWriter) *responseCapture {
 	}
 }
 
-func (rc *responseCapture) Header() http.Header {
+func (rc *ResponseCapture) Header() http.Header {
 	return rc.headers
 }
 
-func (rc *responseCapture) WriteHeader(code int) {
+func (rc *ResponseCapture) WriteHeader(code int) {
 	if !rc.headerWritten {
 		rc.statusCode = code
 		rc.headerWritten = true
@@ -49,7 +45,7 @@ func (rc *responseCapture) WriteHeader(code int) {
 	}
 }
 
-func (rc *responseCapture) Write(b []byte) (int, error) {
+func (rc *ResponseCapture) Write(b []byte) (int, error) {
 	if !rc.headerWritten {
 		rc.WriteHeader(http.StatusOK)
 	}
@@ -58,7 +54,7 @@ func (rc *responseCapture) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (rc *responseCapture) flush() {
+func (rc *ResponseCapture) flush() {
 	// Copy headers to original ResponseWriter
 	for key, values := range rc.headers {
 		for _, value := range values {
@@ -69,6 +65,17 @@ func (rc *responseCapture) flush() {
 		rc.ResponseWriter.WriteHeader(rc.statusCode)
 	}
 	rc.ResponseWriter.Write(rc.body.Bytes())
+}
+
+type InterceptorFunc func(capture *ResponseCapture, arp *AgentReverseProxy) bool
+
+type InterceptorsChain []InterceptorFunc
+
+type AgentReverseProxy struct {
+	proxy        *httputil.ReverseProxy
+	interceptors InterceptorsChain
+	ginContext   *gin.Context
+	targetURL    *url.URL
 }
 
 func NewAgentReverseProxy(c *gin.Context, targetURL *url.URL) *AgentReverseProxy {
@@ -107,9 +114,32 @@ func NewAgentReverseProxy(c *gin.Context, targetURL *url.URL) *AgentReverseProxy
 		})
 	}
 
-	return &AgentReverseProxy{proxy: proxy}
+	return &AgentReverseProxy{
+		proxy:        proxy,
+		interceptors: InterceptorsChain{},
+		ginContext:   c,
+		targetURL:    targetURL,
+	}
+}
+
+func (p *AgentReverseProxy) AddInterceptor(interceptor InterceptorFunc) {
+	p.interceptors = append(p.interceptors, interceptor)
 }
 
 func (p *AgentReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	p.proxy.ServeHTTP(w, r)
+	if len(p.interceptors) == 0 {
+		p.proxy.ServeHTTP(w, r)
+		return
+	}
+
+	// Create response capture to intercept responses
+	capture := NewResponseCapture(w)
+	p.proxy.ServeHTTP(capture, r)
+
+	for _, interceptor := range p.interceptors {
+		if ret := interceptor(capture, p); ret {
+			return
+		}
+		capture.flush()
+	}
 }

@@ -1,11 +1,8 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,12 +10,9 @@ import (
 	"time"
 
 	"go-agent-guide/internal/config"
-	"go-x402-facilitator/pkg/client"
 	"go-x402-facilitator/pkg/facilitator"
 	"go-x402-facilitator/pkg/types"
-	"go-x402-facilitator/pkg/utils"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
@@ -324,77 +318,6 @@ func (g *ResourceGateway) FindResource(path string) *ResourceConfig {
 	return bestMatch
 }
 
-// PaymentRequiredResponse represents the 402 Payment Required response
-type paymentRequiredResponse struct {
-	Error               string                    `json:"error"`
-	Message             string                    `json:"message"`
-	Code                int                       `json:"code"`
-	PaymentRequirements types.PaymentRequirements `json:"paymentRequirements"`
-}
-
-// findChainNetwork finds a chain network configuration by name
-func (g *ResourceGateway) findChainNetwork(networkName string) *config.ChainNetwork {
-	for i := range g.cfg.Facilitator.ChainNetworks {
-		if g.cfg.Facilitator.ChainNetworks[i].Name == networkName {
-			return &g.cfg.Facilitator.ChainNetworks[i]
-		}
-	}
-	return nil
-}
-
-func (g *ResourceGateway) createWeb3Account(network string, tokenContractAddr string) (*utils.Account, error) {
-	// Check if private key is configured
-	if g.cfg.Facilitator.PrivateKey == "" {
-		return nil, fmt.Errorf("private key not configured for automatic payment")
-	}
-
-	// Get chain configuration from chain_networks
-	chainNetwork := g.findChainNetwork(network)
-	if chainNetwork == nil {
-		return nil, fmt.Errorf("chain network %s not found in configuration", network)
-	}
-
-	// Create account from private key
-	return utils.NewAccountWithPrivateKey(chainNetwork.RPC, tokenContractAddr, g.cfg.Facilitator.PrivateKey)
-}
-
-// createPaymentPayload creates a payment payload using the configured private key
-func (g *ResourceGateway) createPaymentPayload(requirements *types.PaymentRequirements) (*types.PaymentPayload, error) {
-	// Create account from private key
-	account, err := g.createWeb3Account(requirements.Network, requirements.Asset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create web3 account: %w", err)
-	}
-
-	// Get chain ID from chain_networks
-	chainNetwork := g.findChainNetwork(requirements.Network)
-	if chainNetwork == nil {
-		return nil, fmt.Errorf("chain network %s not found in configuration", requirements.Network)
-	}
-	chainID := chainNetwork.ID
-
-	// Generate payment payload
-	var validDuration int64 = 300
-	now := time.Now().Unix()
-	validAfter := now - 600000
-	validBefore := now + validDuration
-
-	// Generate nonce
-	nonce := fmt.Sprintf(
-		"0x%x",
-		crypto.Keccak256Hash([]byte(fmt.Sprintf("%d-%s-%s", now, account.WalletAddress.Hex(), requirements.PayTo))).Hex(),
-	)
-
-	return client.CreatePaymentPayload(
-		requirements,
-		account,
-		validAfter,
-		validBefore,
-		chainID,
-		nonce,
-	)
-}
-
 // ProxyRequest proxies the request to the target URL
 func (g *ResourceGateway) ProxyRequest(c *gin.Context, resource *ResourceConfig) {
 	if resource.TargetURL == "" {
@@ -417,88 +340,7 @@ func (g *ResourceGateway) ProxyRequest(c *gin.Context, resource *ResourceConfig)
 		return
 	}
 
-	proxy := NewAgentReverseProxy(c, targetURL)
-
-	// Create response capture to intercept 402 responses
-	capture := NewResponseCapture(c.Writer)
-
-	// Serve the request
-	proxy.ServeHTTP(capture, c.Request)
-
-	// Check if we got a 402 Payment Required response
-	if capture.statusCode == http.StatusPaymentRequired {
-		log.Info().Msg("Received 402 Payment Required, attempting automatic payment")
-
-		// Parse payment requirements from response body
-		var paymentResp paymentRequiredResponse
-		if err := json.Unmarshal(capture.body.Bytes(), &paymentResp); err != nil {
-			log.Error().Err(err).Msg("Failed to parse 402 response")
-			// Return the original 402 response
-			capture.flush()
-			return
-		}
-
-		// Create payment payload
-		paymentPayload, err := g.createPaymentPayload(&paymentResp.PaymentRequirements)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create payment payload")
-			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
-				Error:   "payment_creation_failed",
-				Message: fmt.Sprintf("Failed to create payment: %s", err.Error()),
-				Code:    http.StatusInternalServerError,
-			})
-			return
-		}
-
-		// Serialize payment payload to JSON
-		paymentJSON, err := json.Marshal(paymentPayload)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to marshal payment payload")
-			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
-				Error:   "payment_serialization_failed",
-				Message: fmt.Sprintf("Failed to serialize payment: %s", err.Error()),
-				Code:    http.StatusInternalServerError,
-			})
-			return
-		}
-
-		log.Info().Msg("Payment payload created, retrying request with payment")
-
-		// Create a new request with X-Payment header
-		// We need to recreate the request body if it exists
-		var bodyReader io.Reader
-		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
-			if err == nil {
-				bodyReader = bytes.NewReader(bodyBytes)
-			}
-		}
-
-		retryReq, err := http.NewRequestWithContext(
-			c.Request.Context(),
-			c.Request.Method,
-			targetURL.String(),
-			bodyReader,
-		)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create retry request")
-			c.JSON(http.StatusInternalServerError, types.ErrorResponse{
-				Error:   "retry_request_failed",
-				Message: fmt.Sprintf("Failed to create retry request: %s", err.Error()),
-				Code:    http.StatusInternalServerError,
-			})
-			return
-		}
-
-		// Add X-Payment header
-		retryReq.Header.Set("X-Payment", string(paymentJSON))
-
-		retryProxy := NewAgentReverseProxy(c, targetURL)
-
-		// Execute the retry request directly to the original writer
-		retryProxy.ServeHTTP(c.Writer, retryReq)
-	} else {
-		// Not a 402, flush the captured response
-		capture.flush()
-	}
+	arp := NewAgentReverseProxy(c, targetURL)
+	arp.AddInterceptor(X402BuyerInterceptor(&g.cfg.Facilitator))
+	arp.ServeHTTP(c.Writer, c.Request)
 }
