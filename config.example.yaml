@@ -29,8 +29,8 @@ resources:
 
 facilitator:
   private_key: ""  # Set via environment variable AGENTGUIDE_FACILITATOR_PRIVATE_KEY
-  gas_limit: 100000
-  gas_price: ""
+  gas_limit: 21000
+  gas_price: 10
   x402Version: 1
   supported_schemes: ["exact"]
   supported_networks: ["localhost"]

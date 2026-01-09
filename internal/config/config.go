@@ -56,7 +56,7 @@ type ChainNetwork struct {
 type FacilitatorConfig struct {
 	PrivateKey        string         `mapstructure:"private_key"`
 	GasLimit          uint64         `mapstructure:"gas_limit"`
-	GasPrice          string         `mapstructure:"gas_price"`
+	GasPrice          uint64         `mapstructure:"gas_price"`
 	X402Version       int            `mapstructure:"x402Version"`
 	SupportedSchemes  []string       `mapstructure:"supported_schemes"`
 	SupportedNetworks []string       `mapstructure:"supported_networks"`
@@ -141,8 +141,8 @@ func setDefaults() {
 
 	// Facilitator defaults
 	viper.SetDefault("facilitator.private_key", "")
-	viper.SetDefault("facilitator.gas_limit", 100000)
-	viper.SetDefault("facilitator.gas_price", "")
+	viper.SetDefault("facilitator.gas_limit", 21000)
+	viper.SetDefault("facilitator.gas_price", 10)
 	viper.SetDefault("facilitator.x402Version", 1)
 	viper.SetDefault("facilitator.supported_schemes", []string{"exact"})
 	viper.SetDefault("facilitator.supported_networks", []string{})

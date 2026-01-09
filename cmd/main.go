@@ -11,6 +11,7 @@ import (
 
 	"go-agent-guide/internal/config"
 	"go-agent-guide/internal/server"
+
 	"github.com/agent-guide/go-x402-facilitator/pkg/facilitator"
 
 	"github.com/rs/zerolog"
@@ -62,21 +63,22 @@ func main() {
 			TokenName:     chainNetwork.TokenName,
 			TokenVersion:  chainNetwork.TokenVersion,
 			TokenDecimals: chainNetwork.TokenDecimals,
-			GasLimit:      cfg.Facilitator.GasLimit,
-			GasPrice:      cfg.Facilitator.GasPrice,
+			TokenType:     chainNetwork.TokenType,
 		}
 	}
 
 	// Get supported scheme (use first one if multiple)
-	supportedScheme := "exact" // default
+	var supportedSchemes []string
 	if len(cfg.Facilitator.SupportedSchemes) > 0 {
-		supportedScheme = cfg.Facilitator.SupportedSchemes[0]
+		supportedSchemes = append(supportedSchemes, cfg.Facilitator.SupportedSchemes...)
+	} else {
+		supportedSchemes = []string{"exact"}
 	}
 
 	facilitatorConfig := &facilitator.FacilitatorConfig{
-		Networks:        networks,
-		PrivateKey:      cfg.Facilitator.PrivateKey,
-		SupportedScheme: supportedScheme,
+		Networks:         networks,
+		PrivateKey:       cfg.Facilitator.PrivateKey,
+		SupportedSchemes: supportedSchemes,
 	}
 
 	f, err := facilitator.New(facilitatorConfig)
