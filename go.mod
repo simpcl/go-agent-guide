@@ -3,7 +3,7 @@ module go-agent-guide
 go 1.23
 
 require (
-	github.com/agent-guide/go-x402-facilitator v0.0.2
+	github.com/agent-guide/go-x402-facilitator v0.0.3
 	github.com/ethereum/go-ethereum v1.13.5
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.3.0

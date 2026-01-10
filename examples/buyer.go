@@ -7,22 +7,72 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/agent-guide/go-x402-facilitator/pkg/client"
 	facilitatorTypes "github.com/agent-guide/go-x402-facilitator/pkg/types"
 	"github.com/agent-guide/go-x402-facilitator/pkg/utils"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 var (
-	GatewayURL = "http://localhost:8080"
+	ChainNetwork    = "localhost"
+	ChainID         = uint64(1337)
+	ChainRPC        = "http://127.0.0.1:8545"
+	TokenContract   = "0xBA32c2Ee180e743cCe34CbbC86cb79278C116CEb"
+	TokenName       = "MyToken"
+	TokenVersion    = "1"
+	GatewayURL      = "http://localhost:8080"
+	ResourcePath    = "/premium-data"
+	BuyerPrivateKey = ""
 )
 
 func init() {
-	s := os.Getenv("GATEWAY_URL")
+	var s string
+	s = os.Getenv("CHAIN_NETWORK")
+	if s != "" {
+		ChainNetwork = s
+	}
+	s = os.Getenv("CHAIN_ID")
+	if s != "" {
+		var err error
+		ChainID, err = strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			fmt.Println("Error parsing ChainID:", err)
+			os.Exit(-1)
+		}
+	}
+	s = os.Getenv("CHAIN_RPC")
+	if s != "" {
+		ChainRPC = s
+	}
+	s = os.Getenv("TOKEN_CONTRACT")
+	if s != "" {
+		TokenContract = s
+	}
+	s = os.Getenv("TOKEN_NAME")
+	if s != "" {
+		TokenName = s
+	}
+	s = os.Getenv("TOKEN_VERSION")
+	if s != "" {
+		TokenVersion = s
+	}
+	s = os.Getenv("GATEWAY_URL")
 	if s != "" {
 		GatewayURL = s
 	}
+	s = os.Getenv("RESOURCE_PATH")
+	if s != "" {
+		ResourcePath = s
+	}
+	s = os.Getenv("BUYER_PRIVATE_KEY")
+	if s == "" {
+		log.Fatalln("ERROR: BUYER_PRIVATE_KEY environment variable is not set")
+	}
+	BuyerPrivateKey = s
 }
 
 // PaymentRequiredResponse represents the 402 Payment Required response
@@ -33,41 +83,36 @@ type PaymentRequiredResponse struct {
 	PaymentRequirements facilitatorTypes.PaymentRequirements `json:"paymentRequirements"`
 }
 
-// Payer represents the payer in the X402 payment flow with gateway
-type GatewayPayer struct {
+// ResourceResponse represents the response from accessing a resource
+type ResourceResponse struct {
+	StatusCode int
+	Body       string
+	Headers    http.Header
+}
+
+type Buyer struct {
 	account *utils.Account
 }
 
 // NewGatewayPayer creates a new gateway payer instance
-func NewGatewayPayer() *GatewayPayer {
-	privateKey := os.Getenv("PAYER_PRIVATE_KEY")
-	if privateKey == "" {
-		log.Fatalln("ERROR: PAYER_PRIVATE_KEY environment variable is not set")
-	}
-
-	account, err := utils.NewAccountWithPrivateKey(ChainRPC, TokenContract, privateKey)
+func NewBuyer() *Buyer {
+	account, err := utils.NewAccountWithPrivateKey(ChainRPC, TokenContract, BuyerPrivateKey)
 	if err != nil {
 		log.Fatalf("ERROR: failed to create payer account: %v", err)
 	}
-	return &GatewayPayer{account: account}
+	return &Buyer{account: account}
 }
 
-// AccessResourceWithPayment accesses a resource through the gateway with X402 payment
-func (p *GatewayPayer) AccessResourceWithPayment(resourcePath string) error {
-	fmt.Println("=== Starting X402 Gateway Payment Process ===")
+func (b *Buyer) PrintAccountInfo() {
+	b.account.PrintAccountInfo("Buyer")
+}
 
-	// Print payer info
-	p.account.PrintAccountInfo("Payer")
-
-	tokenName, tokenVersion := p.account.GetTokenInfo()
-	if tokenName == "" || tokenVersion == "" {
-		return fmt.Errorf("failed to get token info")
-	}
-	fmt.Printf("Token name: %s, Token version: %s\n", tokenName, tokenVersion)
-
+// AccessResourceGateway accesses a resource through the gateway with X402 payment
+func (b *Buyer) AccessResourceGateway(resourcePath string) error {
+	fmt.Println("\n=== Payment Process Beginning ===")
 	// Step 1: Request resource without payment (expect 402)
 	fmt.Printf("\n[Step 1] Requesting resource: %s\n", resourcePath)
-	paymentReq, err := p.requestResourceWithoutPayment(resourcePath)
+	paymentReq, err := b.requestResourceWithoutPayment(resourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to get payment requirements: %w", err)
 	}
@@ -81,13 +126,25 @@ func (p *GatewayPayer) AccessResourceWithPayment(resourcePath string) error {
 	fmt.Printf("   Description: %s\n", paymentReq.Description)
 
 	// Step 2: Create payment payload
+	fmt.Println("Creating payment payload...")
+	var validDuration int64 = 300
+	now := time.Now().Unix()
+	validAfter := now - 600000
+	validBefore := now + validDuration
+	// Generate nonce
+	nonce := fmt.Sprintf(
+		"0x%x",
+		crypto.Keccak256Hash([]byte(fmt.Sprintf("%d-%s-%s", now, b.account.WalletAddress.Hex(), paymentReq.PayTo))).Hex(),
+	)
+	fmt.Printf("Nonce: %s\n", nonce)
 	fmt.Println("\n[Step 2] Creating payment payload...")
-	payload, err := CreatePaymentPayload(
-		p.account,
-		paymentReq.PayTo,
-		paymentReq.MaxAmountRequired,
-		tokenName,
-		tokenVersion,
+	payload, err := client.CreatePaymentPayload(
+		paymentReq,
+		b.account.PrivateKey,
+		validAfter,
+		validBefore,
+		ChainID,
+		nonce,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create payment payload: %w", err)
@@ -103,7 +160,7 @@ func (p *GatewayPayer) AccessResourceWithPayment(resourcePath string) error {
 
 	// Step 3: Request resource with payment
 	fmt.Println("\n[Step 3] Requesting resource with payment...")
-	resourceResponse, err := p.requestResourceWithPayment(resourcePath, string(payloadJSON))
+	resourceResponse, err := b.requestResourceWithPayment(resourcePath, string(payloadJSON))
 	if err != nil {
 		return fmt.Errorf("failed to access resource with payment: %w", err)
 	}
@@ -121,12 +178,14 @@ func (p *GatewayPayer) AccessResourceWithPayment(resourcePath string) error {
 		fmt.Printf("   %s\n", preview)
 	}
 
+	fmt.Println("\n=== Payment Process Complete ===")
+
 	return nil
 }
 
 // requestResourceWithoutPayment requests a resource without payment header
 // Returns payment requirements from 402 response
-func (p *GatewayPayer) requestResourceWithoutPayment(resourcePath string) (*facilitatorTypes.PaymentRequirements, error) {
+func (b *Buyer) requestResourceWithoutPayment(resourcePath string) (*facilitatorTypes.PaymentRequirements, error) {
 	// Ensure resource path starts with /
 	if !strings.HasPrefix(resourcePath, "/") {
 		resourcePath = "/" + resourcePath
@@ -165,7 +224,7 @@ func (p *GatewayPayer) requestResourceWithoutPayment(resourcePath string) (*faci
 }
 
 // requestResourceWithPayment requests a resource with X-Payment header
-func (p *GatewayPayer) requestResourceWithPayment(resourcePath string, paymentPayloadJSON string) (*ResourceResponse, error) {
+func (b *Buyer) requestResourceWithPayment(resourcePath string, paymentPayloadJSON string) (*ResourceResponse, error) {
 	// Ensure resource path starts with /
 	if !strings.HasPrefix(resourcePath, "/") {
 		resourcePath = "/" + resourcePath
@@ -206,43 +265,17 @@ func (p *GatewayPayer) requestResourceWithPayment(resourcePath string, paymentPa
 	}, nil
 }
 
-// ResourceResponse represents the response from accessing a resource
-type ResourceResponse struct {
-	StatusCode int
-	Body       string
-	Headers    http.Header
-}
-
 func main() {
 	fmt.Println("=== X402 Gateway Payment Demo ===")
-
-	// Create payer
-	payer := NewGatewayPayer()
-
-	// Check balance
-	payer.account.PrintAccountInfo("Payer")
-
-	// Get resource path from environment or use default
-	resourcePath := os.Getenv("RESOURCE_PATH")
-	if resourcePath == "" {
-		resourcePath = "/premium-data" // Default resource path
-		fmt.Printf("\nUsing default resource path: %s\n", resourcePath)
-		fmt.Println("(Set RESOURCE_PATH environment variable to use a different path)")
-	} else {
-		fmt.Printf("\nUsing resource path from RESOURCE_PATH: %s\n", resourcePath)
-	}
-
-	fmt.Printf("Gateway URL: %s\n", GatewayURL)
 	fmt.Println()
 
-	// Access resource with payment
-	if err := payer.AccessResourceWithPayment(resourcePath); err != nil {
+	buyer := NewBuyer()
+
+	buyer.PrintAccountInfo()
+
+	if err := buyer.AccessResourceGateway(ResourcePath); err != nil {
 		log.Fatalf("Payment failed: %v", err)
 	}
 
-	fmt.Println("\n=== Payment Process Complete ===")
-
-	// Check final balance
-	fmt.Println("\nFinal payer balance:")
-	payer.account.PrintAccountInfo("Payer")
+	buyer.PrintAccountInfo()
 }
